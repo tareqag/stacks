@@ -365,6 +365,7 @@ main{flex:1; padding: 0 20px;}
 <div class="sheet-overlay" id="sheetOverlay"></div>
 <div class="sheet" id="sheet">
   <div class="sheet-handle"></div>
+  <button id="sheetClose" aria-label="Close" style="position:absolute;top:14px;right:16px;background:none;border:none;color:var(--muted);font-size:20px;line-height:1;cursor:pointer;padding:6px;">&times;</button>
   <div class="sheet-head">
     <div class="sheet-cover" id="sheetCover"></div>
     <div>
@@ -500,15 +501,25 @@ async function doSearch(q){
   const resultsEl=document.getElementById('searchResults');
   resultsEl.innerHTML='<div class="loading">Searching the shelves…</div>';
   try{
-    const url=`https://archive.org/advancedsearch.php?q=collection%3A(librivoxaudio)+AND+(${encodeURIComponent(q)})&fl[]=identifier&fl[]=title&fl[]=creator&fl[]=runtime&rows=24&output=json`;
-    const res=await fetch(url);
-    const data=await res.json();
-    const docs=data.response.docs;
+    let docs=await runQuery(`collection%3A(librivoxaudio)+AND+(${encodeURIComponent(q)})`);
+    let expanded=false;
     if(!docs.length){
-      resultsEl.innerHTML=`<div class="empty"><div class="glyph">⌗</div><div class="msg">No matches</div><div class="sub">Try a broader title, or just the author's surname.</div></div>`;
+      // fallback: widen to any free spoken-word audio on archive.org, not just the strict LibriVox collection
+      docs=await runQuery(`mediatype%3A(audio)+AND+(${encodeURIComponent(q)})`);
+      expanded=true;
+    }
+    if(!docs.length){
+      resultsEl.innerHTML=`<div class="empty"><div class="glyph">⌗</div><div class="msg">No matches</div><div class="sub">This title may not have a free public-domain recording — try a broader search, or just the author's surname.</div></div>`;
       return;
     }
     resultsEl.innerHTML='';
+    if(expanded){
+      const note=document.createElement('div');
+      note.className='hint';
+      note.style.margin='0 0 10px';
+      note.textContent='No exact LibriVox match — showing broader free-audio results instead.';
+      resultsEl.appendChild(note);
+    }
     docs.forEach(doc=>{
       const author=Array.isArray(doc.creator)?doc.creator[0]:(doc.creator||'Unknown author');
       const row=document.createElement('div');
@@ -531,10 +542,17 @@ async function doSearch(q){
 function escapeHtml(s){
   return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 }
+async function runQuery(qFragment){
+  const url=`https://archive.org/advancedsearch.php?q=${qFragment}&fl[]=identifier&fl[]=title&fl[]=creator&fl[]=runtime&rows=24&output=json`;
+  const res=await fetch(url);
+  const data=await res.json();
+  return data.response.docs||[];
+}
 
 /* ---------- Detail sheet ---------- */
 let currentDetail=null;
 async function openDetail(identifier,title,author){
+  document.getElementById('sheetDesc').style.display='block';
   document.getElementById('sheetTitle').textContent=title||'Untitled';
   document.getElementById('sheetAuthor').textContent=author||'';
   document.getElementById('sheetCover').style.backgroundImage=`url('${coverUrl(identifier)}')`;
@@ -594,6 +612,29 @@ function hideSheet(){
   document.getElementById('sheet').classList.remove('show');
 }
 document.getElementById('sheetOverlay').addEventListener('click',hideSheet);
+document.getElementById('sheetClose').addEventListener('click',hideSheet);
+
+/* swipe down to dismiss */
+(function(){
+  const sheetEl=document.getElementById('sheet');
+  let startY=null, currentY=0, dragging=false;
+  sheetEl.addEventListener('touchstart',e=>{
+    if(e.target.closest('.chapter-list, .sheet-desc')) return; // allow inner scroll
+    startY=e.touches[0].clientY; dragging=true;
+  },{passive:true});
+  sheetEl.addEventListener('touchmove',e=>{
+    if(!dragging) return;
+    currentY=e.touches[0].clientY-startY;
+    if(currentY>0) sheetEl.style.transform=`translateY(${currentY}px)`;
+  },{passive:true});
+  sheetEl.addEventListener('touchend',()=>{
+    if(!dragging) return;
+    dragging=false;
+    if(currentY>90){ hideSheet(); }
+    sheetEl.style.transform='';
+    currentY=0;
+  });
+})();
 
 /* ---------- Download ---------- */
 async function downloadBook(identifier,title,author,chapters){
@@ -644,9 +685,37 @@ async function renderLibrary(){
         <div class="progress-track"><div class="progress-fill" style="width:${pct}%"></div></div>
         <div class="spine-meta">${total} chapter${total!==1?'s':''} · downloaded</div>
       </div>`;
-    row.addEventListener('click',()=>playBook(book));
+    row.addEventListener('click',()=>openLibraryDetail(book));
     row.addEventListener('contextmenu',e=>{e.preventDefault(); confirmDelete(book);});
     listEl.appendChild(row);
+  });
+}
+async function openLibraryDetail(book){
+  document.getElementById('sheetTitle').textContent=book.title;
+  document.getElementById('sheetAuthor').textContent=book.author;
+  document.getElementById('sheetCover').style.backgroundImage=`url('${coverUrl(book.identifier)}')`;
+  document.getElementById('sheetDesc').textContent='';
+  document.getElementById('sheetDesc').style.display='none';
+  showSheet();
+
+  const idx=book.progress?.chapterIndex||0;
+  const actionBtn=document.getElementById('sheetAction');
+  actionBtn.textContent = (book.progress?.time>0 || idx>0)
+    ? `Resume — Chapter ${idx+1}`
+    : 'Start listening';
+  actionBtn.onclick=()=>{ hideSheet(); playBook(book); };
+
+  const chEl=document.getElementById('sheetChapters');
+  chEl.innerHTML='';
+  book.chapterMeta.forEach((ch,i)=>{
+    const row=document.createElement('div');
+    row.className='chapter-row';
+    row.style.cursor='pointer';
+    row.innerHTML=`<div class="chapter-num">${String(i+1).padStart(2,'0')}</div>
+      <div class="chapter-name">${escapeHtml(ch.title||ch.name)}</div>
+      <div class="chapter-size">${i===idx?'●':''}</div>`;
+    row.addEventListener('click',()=>{ hideSheet(); playBook(book,i); });
+    chEl.appendChild(row);
   });
 }
 async function confirmDelete(book){
