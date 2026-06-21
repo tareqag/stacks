@@ -326,6 +326,55 @@ main{flex:1; padding: 0 20px;}
 }
 .toast.show{opacity:1;}
 
+/* FAVORITE STAR */
+.fav-btn{
+  background:none; border:none; cursor:pointer; padding:6px;
+  color:var(--muted); flex-shrink:0; align-self:flex-start;
+}
+.fav-btn svg{width:18px;height:18px;}
+.fav-btn.active{color:var(--brass);}
+
+/* LIB ROW extras */
+.lib-row-actions{display:flex; flex-direction:column; align-items:center; gap:4px; flex-shrink:0;}
+.lib-delete-btn{background:none; border:none; color:var(--muted); cursor:pointer; padding:6px;}
+.lib-delete-btn svg{width:16px;height:16px;}
+.lib-delete-btn:active{color:var(--danger);}
+.book-pct{font-family:var(--mono); font-size:10px; color:var(--brass-dim); margin-top:2px; text-align:right;}
+.chapter-pct{font-family:var(--mono); font-size:10px; color:var(--muted); min-width:34px; text-align:right;}
+.chapter-pct.done{color:var(--brass);}
+.chapter-row.playing .chapter-name{color:var(--brass);}
+
+/* SHEET header actions */
+.sheet-head-actions{
+  position:absolute; top:10px; right:10px;
+  display:flex; align-items:center; gap:2px;
+}
+
+/* TRANSPORT ROW inside sheet */
+.transport-row{
+  display:flex; align-items:center; justify-content:center; gap:28px;
+  padding:6px 20px 14px;
+}
+.transport-row button{background:none; border:none; color:var(--bone); cursor:pointer; padding:6px;}
+.transport-row svg{width:26px;height:26px;}
+.transport-row .tp-play svg{width:38px;height:38px;}
+.skip-label{position:relative;}
+.skip-label .num{
+  position:absolute; top:50%; left:50%; transform:translate(-50%,-50%);
+  font-family:var(--mono); font-size:8px; color:var(--ink); font-weight:600;
+}
+
+.delete-row{padding:0 20px 18px;}
+.btn.danger{border-color:var(--danger); color:var(--danger);}
+.btn.danger:active{background:rgba(168,85,74,0.08);}
+
+/* RECOMMENDED */
+.section-label{
+  font-family:var(--mono); font-size:11px; text-transform:uppercase; letter-spacing:0.1em;
+  color:var(--muted); margin:8px 0 4px;
+}
+#recommended{margin-bottom:22px;}
+
 ::-webkit-scrollbar{display:none;}
 </style>
 </head>
@@ -349,6 +398,7 @@ main{flex:1; padding: 0 20px;}
         <input id="searchInput" type="text" placeholder="Title or author — try 'Musashi' or 'Dumas'" autocomplete="off">
       </div>
       <div class="hint" id="searchHint">Pulls from the LibriVox public-domain catalogue on archive.org.</div>
+      <div id="recommended"></div>
       <div id="searchResults"></div>
     </div>
 
@@ -365,7 +415,12 @@ main{flex:1; padding: 0 20px;}
 <div class="sheet-overlay" id="sheetOverlay"></div>
 <div class="sheet" id="sheet">
   <div class="sheet-handle"></div>
-  <button id="sheetClose" aria-label="Close" style="position:absolute;top:14px;right:16px;background:none;border:none;color:var(--muted);font-size:20px;line-height:1;cursor:pointer;padding:6px;">&times;</button>
+  <div class="sheet-head-actions">
+    <button class="fav-btn" id="sheetFavBtn" aria-label="Favorite">
+      <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 17.3l-6.16 3.6 1.64-7-5.36-4.64 7.06-.6L12 2l2.82 6.66 7.06.6-5.36 4.64 1.64 7z"/></svg>
+    </button>
+    <button id="sheetClose" aria-label="Close" style="background:none;border:none;color:var(--muted);font-size:20px;line-height:1;cursor:pointer;padding:6px;">&times;</button>
+  </div>
   <div class="sheet-head">
     <div class="sheet-cover" id="sheetCover"></div>
     <div>
@@ -373,18 +428,32 @@ main{flex:1; padding: 0 20px;}
       <div class="sheet-author" id="sheetAuthor"></div>
     </div>
   </div>
+  <div class="transport-row" id="sheetTransport" style="display:none;">
+    <button id="sheetBack15" aria-label="Back 15 seconds">
+      <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 5V2L7 7l5 5V9c3.31 0 6 2.69 6 6s-2.69 6-6 6-6-2.69-6-6H4c0 4.42 3.58 8 8 8s8-3.58 8-8-3.58-8-8-8z"/></svg>
+    </button>
+    <button class="tp-play" id="sheetPlayPause" aria-label="Play or pause">
+      <svg viewBox="0 0 24 24" fill="currentColor"><path id="sheetPlayIcon" d="M8 5v14l11-7z"/></svg>
+    </button>
+    <button id="sheetFwd15" aria-label="Forward 15 seconds">
+      <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 5V2l5 5-5 5V9c-3.31 0-6 2.69-6 6s2.69 6 6 6 6-2.69 6-6h2c0 4.42-3.58 8-8 8s-8-3.58-8-8 3.58-8 8-8z"/></svg>
+    </button>
+  </div>
   <div class="btn-row">
     <button class="btn full" id="sheetAction">Download all chapters</button>
   </div>
   <div class="sheet-desc" id="sheetDesc"></div>
   <div class="chapter-list" id="sheetChapters"></div>
+  <div class="delete-row" id="sheetDeleteRow" style="display:none;">
+    <button class="btn full danger" id="sheetDeleteBtn">Remove from shelf</button>
+  </div>
 </div>
 
 <!-- PLAYER -->
 <div class="player-bar" id="playerBar">
   <div class="player-top">
     <div class="player-cover" id="playerCover"></div>
-    <div class="player-text">
+    <div class="player-text" id="playerTextArea" style="cursor:pointer;">
       <div class="player-title" id="playerTitle">—</div>
       <div class="player-chapter" id="playerChapter">—</div>
     </div>
@@ -407,7 +476,7 @@ main{flex:1; padding: 0 20px;}
 
 <script>
 /* ---------- IndexedDB storage layer ---------- */
-const DB_NAME='stacks-db', DB_VER=1;
+const DB_NAME='stacks-db', DB_VER=2;
 let db;
 function openDB(){
   return new Promise((res,rej)=>{
@@ -416,6 +485,7 @@ function openDB(){
       const d=e.target.result;
       if(!d.objectStoreNames.contains('books')) d.createObjectStore('books',{keyPath:'identifier'});
       if(!d.objectStoreNames.contains('files')) d.createObjectStore('files',{keyPath:'key'});
+      if(!d.objectStoreNames.contains('favorites')) d.createObjectStore('favorites',{keyPath:'identifier'});
     };
     req.onsuccess=e=>{db=e.target.result; res(db);};
     req.onerror=e=>rej(e);
@@ -476,6 +546,42 @@ function fmtTime(s){
   return m+':'+String(sec).padStart(2,'0');
 }
 
+/* ---------- Favorites ---------- */
+async function isFavorited(identifier){
+  const fav=await idbGet('favorites',identifier);
+  if(fav) return true;
+  const book=await idbGet('books',identifier);
+  return !!(book && book.favorite);
+}
+async function toggleFavorite(identifier,meta){
+  const already=await isFavorited(identifier);
+  const book=await idbGet('books',identifier);
+  if(already){
+    await idbDelete('favorites',identifier);
+    if(book){ book.favorite=false; await idbPut('books',book); }
+    toast('Removed from favorites');
+  }else{
+    await idbPut('favorites',{identifier, title:meta.title, author:meta.author, favoritedAt:Date.now()});
+    if(book){ book.favorite=true; await idbPut('books',book); }
+    toast('Added to favorites');
+  }
+  return !already;
+}
+
+/* ---------- Progress math ---------- */
+function chapterPercent(ch){
+  if(!ch) return 0;
+  if(ch.completed) return 100;
+  if(ch.duration) return Math.min(100, Math.round((ch.elapsed||0)/ch.duration*100));
+  return 0;
+}
+function bookPercent(book){
+  const chs=book.chapterMeta||[];
+  if(!chs.length) return 0;
+  const sum=chs.reduce((acc,ch)=>acc+chapterPercent(ch),0);
+  return Math.round(sum/chs.length);
+}
+
 /* ---------- Tabs ---------- */
 document.querySelectorAll('.tab').forEach(tab=>{
   tab.addEventListener('click',()=>{
@@ -485,6 +591,7 @@ document.querySelectorAll('.tab').forEach(tab=>{
     document.getElementById('view-search').style.display = which==='search'?'block':'none';
     document.getElementById('view-library').style.display = which==='library'?'block':'none';
     if(which==='library') renderLibrary();
+    if(which==='search') renderRecommendations();
   });
 });
 
@@ -493,7 +600,8 @@ let searchDebounce;
 document.getElementById('searchInput').addEventListener('input',e=>{
   clearTimeout(searchDebounce);
   const q=e.target.value.trim();
-  if(q.length<2){ document.getElementById('searchResults').innerHTML=''; return; }
+  if(q.length<2){ document.getElementById('searchResults').innerHTML=''; renderRecommendations(); return; }
+  document.getElementById('recommended').innerHTML='';
   searchDebounce=setTimeout(()=>doSearch(q),400);
 });
 
@@ -531,8 +639,22 @@ async function doSearch(q){
           <div class="spine-title">${escapeHtml(doc.title||'Untitled')}</div>
           <div class="spine-author">${escapeHtml(author)}</div>
           <div class="spine-meta">LIBRIVOX · FREE</div>
-        </div>`;
-      row.addEventListener('click',()=>openDetail(doc.identifier,doc.title,author));
+        </div>
+        <button class="fav-btn" data-id="${doc.identifier}" aria-label="Favorite">
+          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 17.3l-6.16 3.6 1.64-7-5.36-4.64 7.06-.6L12 2l2.82 6.66 7.06.6-5.36 4.64 1.64 7z"/></svg>
+        </button>`;
+      row.addEventListener('click',e=>{
+        if(e.target.closest('.fav-btn')) return;
+        openDetail(doc.identifier,doc.title,author);
+      });
+      isFavorited(doc.identifier).then(fav=>{
+        if(fav) row.querySelector('.fav-btn').classList.add('active');
+      });
+      row.querySelector('.fav-btn').addEventListener('click',async e=>{
+        e.stopPropagation();
+        const nowFav=await toggleFavorite(doc.identifier,{title:doc.title||'Untitled',author});
+        e.currentTarget.classList.toggle('active',nowFav);
+      });
       resultsEl.appendChild(row);
     });
   }catch(err){
@@ -549,10 +671,70 @@ async function runQuery(qFragment){
   return data.response.docs||[];
 }
 
+/* ---------- Recommendations ---------- */
+function renderSpineRow(doc, container){
+  const author=Array.isArray(doc.creator)?doc.creator[0]:(doc.creator||'Unknown author');
+  const row=document.createElement('div');
+  row.className='spine';
+  row.innerHTML=`
+    <div class="spine-bar"></div>
+    <div class="spine-cover" style="background-image:url('${coverUrl(doc.identifier)}')"></div>
+    <div class="spine-info">
+      <div class="spine-title">${escapeHtml(doc.title||'Untitled')}</div>
+      <div class="spine-author">${escapeHtml(author)}</div>
+      <div class="spine-meta">LIBRIVOX · FREE</div>
+    </div>
+    <button class="fav-btn" data-id="${doc.identifier}" aria-label="Favorite">
+      <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 17.3l-6.16 3.6 1.64-7-5.36-4.64 7.06-.6L12 2l2.82 6.66 7.06.6-5.36 4.64 1.64 7z"/></svg>
+    </button>`;
+  row.addEventListener('click',e=>{
+    if(e.target.closest('.fav-btn')) return;
+    openDetail(doc.identifier,doc.title,author);
+  });
+  isFavorited(doc.identifier).then(fav=>{
+    if(fav) row.querySelector('.fav-btn').classList.add('active');
+  });
+  row.querySelector('.fav-btn').addEventListener('click',async e=>{
+    e.stopPropagation();
+    const nowFav=await toggleFavorite(doc.identifier,{title:doc.title||'Untitled',author});
+    e.currentTarget.classList.toggle('active',nowFav);
+  });
+  container.appendChild(row);
+}
+
+async function renderRecommendations(){
+  const box=document.getElementById('recommended');
+  const q=document.getElementById('searchInput').value.trim();
+  if(q.length>=2){ box.innerHTML=''; return; } // only show when search is empty
+
+  const [favs, books] = await Promise.all([idbGetAll('favorites'), idbGetAll('books')]);
+  const ownedIds=new Set(books.map(b=>b.identifier));
+  const authorSet=new Set();
+  favs.forEach(f=>{ if(f.author) authorSet.add(f.author); });
+  books.filter(b=>b.favorite).forEach(b=>{ if(b.author) authorSet.add(b.author); });
+  books.forEach(b=>{ if(b.author) authorSet.add(b.author); });
+
+  if(!authorSet.size){ box.innerHTML=''; return; }
+
+  box.innerHTML=`<div class="section-label">Because you've liked these authors</div>`;
+  const authors=[...authorSet].slice(0,4);
+  let any=false;
+  for(const author of authors){
+    try{
+      const docs=await runQuery(`collection%3A(librivoxaudio)+AND+creator%3A(${encodeURIComponent(author)})`);
+      const fresh=docs.filter(d=>!ownedIds.has(d.identifier)).slice(0,3);
+      fresh.forEach(d=>{ renderSpineRow(d, box); any=true; });
+    }catch(e){ /* skip this author on failure */ }
+  }
+  if(!any){ box.innerHTML=''; }
+}
+
 /* ---------- Detail sheet ---------- */
 let currentDetail=null;
 async function openDetail(identifier,title,author){
   document.getElementById('sheetDesc').style.display='block';
+  document.getElementById('sheetTransport').style.display='none';
+  document.getElementById('sheetDeleteRow').style.display='none';
   document.getElementById('sheetTitle').textContent=title||'Untitled';
   document.getElementById('sheetAuthor').textContent=author||'';
   document.getElementById('sheetCover').style.backgroundImage=`url('${coverUrl(identifier)}')`;
@@ -590,6 +772,14 @@ async function openDetail(identifier,title,author){
       <div class="chapter-size">${fmtBytes(parseInt(f.size||0))}</div>`;
     chEl.appendChild(row);
   });
+
+  const favBtn=document.getElementById('sheetFavBtn');
+  const fav=await isFavorited(identifier);
+  favBtn.classList.toggle('active',fav);
+  favBtn.onclick=async()=>{
+    const nowFav=await toggleFavorite(identifier,{title:title||'Untitled',author:author||''});
+    favBtn.classList.toggle('active',nowFav);
+  };
 
   const actionBtn=document.getElementById('sheetAction');
   if(existing){
@@ -642,8 +832,8 @@ async function downloadBook(identifier,title,author,chapters){
   btn.disabled=true;
 
   await idbPut('books',{identifier,title:title||'Untitled',author:author||'',
-    chapterMeta:chapters.map(f=>({name:f.name,title:f.title||f.name})),
-    addedAt:Date.now(), progress:{chapterIndex:0,time:0}});
+    chapterMeta:chapters.map(f=>({name:f.name,title:f.title||f.name,duration:null,elapsed:0,completed:false})),
+    addedAt:Date.now(), progress:{chapterIndex:0,time:0,lastPlayedAt:Date.now()}, favorite:false});
 
   for(let i=0;i<chapters.length;i++){
     btn.textContent=`Downloading ${i+1} of ${chapters.length}…`;
@@ -671,10 +861,13 @@ async function renderLibrary(){
     return;
   }
   listEl.innerHTML='';
-  books.sort((a,b)=>b.addedAt-a.addedAt).forEach(book=>{
+  books.sort((a,b)=>{
+    const at=a.progress?.lastPlayedAt||a.addedAt;
+    const bt=b.progress?.lastPlayedAt||b.addedAt;
+    return bt-at;
+  }).forEach(book=>{
     const total=book.chapterMeta.length;
-    const idx=book.progress?.chapterIndex||0;
-    const pct=total>1 ? Math.round((idx/(total-1))*100) : 0;
+    const pct=bookPercent(book);
     const row=document.createElement('div');
     row.className='lib-item';
     row.innerHTML=`
@@ -683,10 +876,29 @@ async function renderLibrary(){
         <div class="spine-title">${escapeHtml(book.title)}</div>
         <div class="spine-author">${escapeHtml(book.author)}</div>
         <div class="progress-track"><div class="progress-fill" style="width:${pct}%"></div></div>
-        <div class="spine-meta">${total} chapter${total!==1?'s':''} · downloaded</div>
+        <div class="spine-meta">${total} chapter${total!==1?'s':''} · ${pct}% complete</div>
+      </div>
+      <div class="lib-row-actions">
+        <button class="fav-btn ${book.favorite?'active':''}" data-id="${book.identifier}" aria-label="Favorite">
+          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 17.3l-6.16 3.6 1.64-7-5.36-4.64 7.06-.6L12 2l2.82 6.66 7.06.6-5.36 4.64 1.64 7z"/></svg>
+        </button>
+        <button class="lib-delete-btn" data-id="${book.identifier}" aria-label="Remove">
+          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 7h12l-1 13H7L6 7zm3-3h6l1 2H8l1-2zM9 10v7m3-7v7m3-7v7" stroke="currentColor" stroke-width="1.4" fill="none"/></svg>
+        </button>
       </div>`;
-    row.addEventListener('click',()=>openLibraryDetail(book));
-    row.addEventListener('contextmenu',e=>{e.preventDefault(); confirmDelete(book);});
+    row.addEventListener('click',e=>{
+      if(e.target.closest('.fav-btn') || e.target.closest('.lib-delete-btn')) return;
+      openLibraryDetail(book);
+    });
+    row.querySelector('.fav-btn').addEventListener('click',async e=>{
+      e.stopPropagation();
+      const nowFav=await toggleFavorite(book.identifier,{title:book.title,author:book.author});
+      e.currentTarget.classList.toggle('active',nowFav);
+    });
+    row.querySelector('.lib-delete-btn').addEventListener('click',e=>{
+      e.stopPropagation();
+      confirmDelete(book);
+    });
     listEl.appendChild(row);
   });
 }
@@ -696,24 +908,60 @@ async function openLibraryDetail(book){
   document.getElementById('sheetCover').style.backgroundImage=`url('${coverUrl(book.identifier)}')`;
   document.getElementById('sheetDesc').textContent='';
   document.getElementById('sheetDesc').style.display='none';
+  document.getElementById('sheetTransport').style.display='flex';
+  document.getElementById('sheetDeleteRow').style.display='block';
   showSheet();
 
   const idx=book.progress?.chapterIndex||0;
+  const pct=bookPercent(book);
   const actionBtn=document.getElementById('sheetAction');
-  actionBtn.textContent = (book.progress?.time>0 || idx>0)
-    ? `Resume — Chapter ${idx+1}`
+  actionBtn.textContent = pct>0
+    ? `Resume — Chapter ${idx+1} · ${pct}% complete`
     : 'Start listening';
   actionBtn.onclick=()=>{ hideSheet(); playBook(book); };
+
+  const favBtn=document.getElementById('sheetFavBtn');
+  favBtn.classList.toggle('active',!!book.favorite);
+  favBtn.onclick=async()=>{
+    const nowFav=await toggleFavorite(book.identifier,{title:book.title,author:book.author});
+    favBtn.classList.toggle('active',nowFav);
+  };
+
+  document.getElementById('sheetDeleteBtn').onclick=()=>{ hideSheet(); confirmDelete(book); };
+
+  function isThisBookActive(){ return playerBook && playerBook.identifier===book.identifier; }
+  function syncPlayIcon(){
+    const playing = isThisBookActive() && !audioEl.paused;
+    document.getElementById('sheetPlayIcon').setAttribute('d', playing
+      ? 'M6 5h4v14H6zm8 0h4v14h-4z' : 'M8 5v14l11-7z');
+  }
+  syncPlayIcon();
+  document.getElementById('sheetPlayPause').onclick=async()=>{
+    if(!isThisBookActive()) await playBook(book);
+    else if(audioEl.paused) audioEl.play(); else audioEl.pause();
+    syncPlayIcon();
+  };
+  document.getElementById('sheetBack15').onclick=async()=>{
+    if(!isThisBookActive()) await playBook(book);
+    audioEl.currentTime=Math.max(0,audioEl.currentTime-15);
+  };
+  document.getElementById('sheetFwd15').onclick=async()=>{
+    if(!isThisBookActive()) await playBook(book);
+    audioEl.currentTime=Math.min(audioEl.duration||audioEl.currentTime+15,audioEl.currentTime+15);
+  };
+  audioEl.addEventListener('play',syncPlayIcon);
+  audioEl.addEventListener('pause',syncPlayIcon);
 
   const chEl=document.getElementById('sheetChapters');
   chEl.innerHTML='';
   book.chapterMeta.forEach((ch,i)=>{
+    const cp=chapterPercent(ch);
     const row=document.createElement('div');
-    row.className='chapter-row';
+    row.className='chapter-row'+(i===idx?' playing':'');
     row.style.cursor='pointer';
     row.innerHTML=`<div class="chapter-num">${String(i+1).padStart(2,'0')}</div>
       <div class="chapter-name">${escapeHtml(ch.title||ch.name)}</div>
-      <div class="chapter-size">${i===idx?'●':''}</div>`;
+      <div class="chapter-pct ${cp>=100?'done':''}">${cp}%</div>`;
     row.addEventListener('click',()=>{ hideSheet(); playBook(book,i); });
     chEl.appendChild(row);
   });
@@ -757,9 +1005,22 @@ async function loadChapter(index, seekTo){
 }
 function saveProgress(){
   if(!playerBook) return;
-  playerBook.progress={chapterIndex:playerIndex, time:audioEl.currentTime||0};
+  playerBook.progress={chapterIndex:playerIndex, time:audioEl.currentTime||0, lastPlayedAt:Date.now()};
+  const ch=playerBook.chapterMeta[playerIndex];
+  if(ch){
+    ch.elapsed=audioEl.currentTime||0;
+    if(isFinite(audioEl.duration)) ch.duration=audioEl.duration;
+  }
   idbPut('books',playerBook);
 }
+
+document.getElementById('playerTextArea').addEventListener('click',()=>{
+  if(playerBook) openLibraryDetail(playerBook);
+});
+document.getElementById('playerCover').addEventListener('click',()=>{
+  if(playerBook) openLibraryDetail(playerBook);
+});
+document.getElementById('playerCover').style.cursor='pointer';
 
 document.getElementById('playBtn').addEventListener('click',()=>{
   if(audioEl.paused) audioEl.play(); else audioEl.pause();
@@ -786,14 +1047,18 @@ audioEl.addEventListener('timeupdate',()=>{
   if(Math.floor(audioEl.currentTime)%5===0) saveProgress();
 });
 audioEl.addEventListener('ended',()=>{
-  if(playerBook && playerIndex<playerBook.chapterMeta.length-1) loadChapter(playerIndex+1,0);
+  if(playerBook){
+    const ch=playerBook.chapterMeta[playerIndex];
+    if(ch){ ch.completed=true; ch.elapsed=ch.duration||ch.elapsed; idbPut('books',playerBook); }
+    if(playerIndex<playerBook.chapterMeta.length-1) loadChapter(playerIndex+1,0);
+  }
 });
 document.getElementById('seekBar').addEventListener('input',e=>{
   if(audioEl.duration) audioEl.currentTime = (e.target.value/100)*audioEl.duration;
 });
 
 /* ---------- Init ---------- */
-openDB().then(()=>{ renderLibrary(); });
+openDB().then(()=>{ renderLibrary(); renderRecommendations(); });
 </script>
 </body>
 </html>
