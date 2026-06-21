@@ -386,6 +386,7 @@ main{flex:1; padding: 0 20px;}
     <div class="tagline">Public-domain audiobooks, kept on your phone</div>
     <div class="tabs">
       <button class="tab active" data-tab="search">Search</button>
+      <button class="tab" data-tab="ai">AI Library</button>
       <button class="tab" data-tab="library">My Shelf</button>
     </div>
   </header>
@@ -400,6 +401,25 @@ main{flex:1; padding: 0 20px;}
       <div class="hint" id="searchHint">Pulls from the LibriVox public-domain catalogue on archive.org.</div>
       <div id="recommended"></div>
       <div id="searchResults"></div>
+    </div>
+
+    <!-- AI LIBRARY VIEW -->
+    <div id="view-ai" style="display:none;">
+      <div class="hint" id="aiServerHint" style="cursor:pointer;">Server: not set — tap to configure</div>
+      <div class="search-bar">
+        <input id="aiSearchInput" type="text" placeholder="Search Project Gutenberg's public-domain catalogue" autocomplete="off">
+      </div>
+      <div class="hint">
+        Voice:
+        <select id="aiVoiceSelect" style="background:var(--surface);color:var(--brass);border:1px solid var(--hair);border-radius:3px;font-family:var(--mono);font-size:11px;padding:3px 6px;">
+          <option value="Cherry">Cherry</option>
+          <option value="Ryan">Ryan</option>
+          <option value="Vivian">Vivian</option>
+          <option value="Serena">Serena</option>
+          <option value="Aiden">Aiden</option>
+        </select>
+      </div>
+      <div id="aiResults"></div>
     </div>
 
     <!-- LIBRARY VIEW -->
@@ -589,9 +609,11 @@ document.querySelectorAll('.tab').forEach(tab=>{
     tab.classList.add('active');
     const which=tab.dataset.tab;
     document.getElementById('view-search').style.display = which==='search'?'block':'none';
+    document.getElementById('view-ai').style.display = which==='ai'?'block':'none';
     document.getElementById('view-library').style.display = which==='library'?'block':'none';
     if(which==='library') renderLibrary();
     if(which==='search') renderRecommendations();
+    if(which==='ai') refreshAIServerHint();
   });
 });
 
@@ -671,7 +693,142 @@ async function runQuery(qFragment){
   return data.response.docs||[];
 }
 
-/* ---------- Recommendations ---------- */
+/* ---------- AI Library (Project Gutenberg + Qwen3-TTS proxy) ---------- */
+function getProxyUrl(){ return localStorage.getItem('stacksProxyUrl') || ''; }
+function setProxyUrl(url){ localStorage.setItem('stacksProxyUrl', url); }
+function getVoice(){ return document.getElementById('aiVoiceSelect').value; }
+
+function refreshAIServerHint(){
+  const url=getProxyUrl();
+  const hint=document.getElementById('aiServerHint');
+  hint.textContent = url ? `Server: ${url} — tap to change` : 'Server: not set — tap to configure';
+}
+document.getElementById('aiServerHint').addEventListener('click',()=>{
+  const current=getProxyUrl();
+  const url=prompt('Address of your proxy.py server (your laptop\'s Tailscale or LAN IP):', current||'http://100.0.0.1:5005');
+  if(url){ setProxyUrl(url.replace(/\/$/,'')); refreshAIServerHint(); toast('Server address saved'); }
+});
+
+let aiSearchDebounce;
+document.getElementById('aiSearchInput').addEventListener('input',e=>{
+  clearTimeout(aiSearchDebounce);
+  const q=e.target.value.trim();
+  if(q.length<2){ document.getElementById('aiResults').innerHTML=''; return; }
+  aiSearchDebounce=setTimeout(()=>doAISearch(q),400);
+});
+
+async function doAISearch(q){
+  const proxy=getProxyUrl();
+  const resultsEl=document.getElementById('aiResults');
+  if(!proxy){ resultsEl.innerHTML=`<div class="empty"><div class="glyph">⚙</div><div class="msg">Set your server address first</div><div class="sub">Tap the hint above and enter your laptop's Tailscale IP, e.g. http://100.x.x.x:5005</div></div>`; return; }
+  resultsEl.innerHTML='<div class="loading">Searching Project Gutenberg…</div>';
+  try{
+    const res=await fetch(`${proxy}/search?q=${encodeURIComponent(q)}`);
+    const data=await res.json();
+    const results=data.results||[];
+    if(!results.length){
+      resultsEl.innerHTML=`<div class="empty"><div class="glyph">⌗</div><div class="msg">No matches</div><div class="sub">Try a different title or author.</div></div>`;
+      return;
+    }
+    resultsEl.innerHTML='';
+    results.forEach(book=>{
+      const row=document.createElement('div');
+      row.className='spine';
+      row.innerHTML=`
+        <div class="spine-bar"></div>
+        <div class="spine-cover" style="background-image:url('${book.cover||''}')"></div>
+        <div class="spine-info">
+          <div class="spine-title">${escapeHtml(book.title)}</div>
+          <div class="spine-author">${escapeHtml(book.author)}</div>
+          <div class="spine-meta">GUTENBERG · AI NARRATED</div>
+        </div>`;
+      row.addEventListener('click',()=>openAIDetail(book));
+      resultsEl.appendChild(row);
+    });
+  }catch(e){
+    resultsEl.innerHTML=`<div class="empty"><div class="glyph">!</div><div class="msg">Couldn't reach your server</div><div class="sub">Make sure proxy.py is running and your server address is correct.</div></div>`;
+  }
+}
+
+async function openAIDetail(book){
+  const proxy=getProxyUrl();
+  document.getElementById('sheetTransport').style.display='none';
+  document.getElementById('sheetDeleteRow').style.display='none';
+  document.getElementById('sheetDesc').style.display='none';
+  document.getElementById('sheetTitle').textContent=book.title;
+  document.getElementById('sheetAuthor').textContent=book.author;
+  document.getElementById('sheetCover').style.backgroundImage=book.cover?`url('${book.cover}')`:'';
+  document.getElementById('sheetChapters').innerHTML='<div class="loading">Loading chapters…</div>';
+  showSheet();
+
+  const favBtn=document.getElementById('sheetFavBtn');
+  favBtn.style.display='none'; // not applicable pre-generation
+
+  const identifier=`gutenberg-${book.id}`;
+  const existing=await idbGet('books',identifier);
+  const actionBtn=document.getElementById('sheetAction');
+
+  if(existing){
+    actionBtn.textContent='Already on your shelf — open it';
+    actionBtn.onclick=()=>{ hideSheet(); switchToLibrary(); };
+    document.getElementById('sheetChapters').innerHTML='';
+    favBtn.style.display='';
+    return;
+  }
+
+  try{
+    const res=await fetch(`${proxy}/book/${book.id}/info`);
+    const info=await res.json();
+    const chapters=info.chapters||[];
+    const chEl=document.getElementById('sheetChapters');
+    chEl.innerHTML='';
+    chapters.forEach((ch,i)=>{
+      const row=document.createElement('div');
+      row.className='chapter-row';
+      row.innerHTML=`<div class="chapter-num">${String(i+1).padStart(2,'0')}</div>
+        <div class="chapter-name">${escapeHtml(ch.title)}</div>
+        <div class="chapter-size">~${Math.round(ch.chars/10000*0.10*100)/100>0?'$'+(Math.round(ch.chars/10000*0.10*100)/100).toFixed(2):''}</div>`;
+      chEl.appendChild(row);
+    });
+    const totalChars=chapters.reduce((a,c)=>a+c.chars,0);
+    const estCost=(totalChars/10000*0.10).toFixed(2);
+    actionBtn.textContent=`Generate audiobook with AI (~$${estCost})`;
+    actionBtn.onclick=()=>generateAIBook(identifier,book,chapters);
+  }catch(e){
+    document.getElementById('sheetChapters').innerHTML=`<div class="empty"><div class="sub">Couldn't load this book from your server.</div></div>`;
+  }
+}
+
+async function generateAIBook(identifier,book,chapters){
+  const proxy=getProxyUrl();
+  const voice=getVoice();
+  const btn=document.getElementById('sheetAction');
+  btn.disabled=true;
+
+  await idbPut('books',{identifier,title:book.title,author:book.author,
+    chapterMeta:chapters.map((c,i)=>({name:`chapter-${i}`,title:c.title,duration:null,elapsed:0,completed:false})),
+    addedAt:Date.now(), progress:{chapterIndex:0,time:0,lastPlayedAt:Date.now()},
+    favorite:false, source:'ai', voice});
+
+  for(let i=0;i<chapters.length;i++){
+    btn.textContent=`Generating ${i+1} of ${chapters.length}… (this can take a while)`;
+    try{
+      const res=await fetch(`${proxy}/book/${book.id}/chapter/${i}/generate`,{
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({voice})
+      });
+      if(!res.ok) throw new Error('generation failed');
+      const blob=await res.blob();
+      await idbPut('files',{key:identifier+'::chapter-'+i, blob});
+    }catch(e){
+      toast(`Chapter ${i+1} failed — you can retry from My Shelf later`);
+    }
+  }
+  btn.disabled=false;
+  btn.textContent='Already on your shelf — open it';
+  btn.onclick=()=>{ hideSheet(); switchToLibrary(); };
+  toast('Audiobook generated — check your shelf');
+}
 function renderSpineRow(doc, container){
   const author=Array.isArray(doc.creator)?doc.creator[0]:(doc.creator||'Unknown author');
   const row=document.createElement('div');
@@ -735,6 +892,7 @@ async function openDetail(identifier,title,author){
   document.getElementById('sheetDesc').style.display='block';
   document.getElementById('sheetTransport').style.display='none';
   document.getElementById('sheetDeleteRow').style.display='none';
+  document.getElementById('sheetFavBtn').style.display='';
   document.getElementById('sheetTitle').textContent=title||'Untitled';
   document.getElementById('sheetAuthor').textContent=author||'';
   document.getElementById('sheetCover').style.backgroundImage=`url('${coverUrl(identifier)}')`;
@@ -876,7 +1034,7 @@ async function renderLibrary(){
         <div class="spine-title">${escapeHtml(book.title)}</div>
         <div class="spine-author">${escapeHtml(book.author)}</div>
         <div class="progress-track"><div class="progress-fill" style="width:${pct}%"></div></div>
-        <div class="spine-meta">${total} chapter${total!==1?'s':''} · ${pct}% complete</div>
+        <div class="spine-meta">${total} chapter${total!==1?'s':''} · ${pct}% complete${book.source==='ai'?' · AI narrated':''}</div>
       </div>
       <div class="lib-row-actions">
         <button class="fav-btn ${book.favorite?'active':''}" data-id="${book.identifier}" aria-label="Favorite">
@@ -903,6 +1061,7 @@ async function renderLibrary(){
   });
 }
 async function openLibraryDetail(book){
+  document.getElementById('sheetFavBtn').style.display='';
   document.getElementById('sheetTitle').textContent=book.title;
   document.getElementById('sheetAuthor').textContent=book.author;
   document.getElementById('sheetCover').style.backgroundImage=`url('${coverUrl(book.identifier)}')`;
@@ -1058,7 +1217,7 @@ document.getElementById('seekBar').addEventListener('input',e=>{
 });
 
 /* ---------- Init ---------- */
-openDB().then(()=>{ renderLibrary(); renderRecommendations(); });
+openDB().then(()=>{ renderLibrary(); renderRecommendations(); refreshAIServerHint(); });
 </script>
 </body>
 </html>
